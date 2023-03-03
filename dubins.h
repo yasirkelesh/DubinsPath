@@ -5,6 +5,11 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <proj.h>
+
 
 typedef enum 
 {
@@ -16,8 +21,8 @@ typedef enum
 
 typedef struct
 {
-    double lat;   // Uçak konumu x koordinatı
-    double lon;   // Uçak konumu y koordinatı
+    double x;   // Uçak konumu x koordinatı
+    double y;   // Uçak konumu y koordinatı
     double yaw; // Uçak yönü (radyan cinsinden)
 } Node;
 

@@ -1,6 +1,5 @@
 #include "dubins.h"
 #include <math.h>
-#include <proj_api.h>
 
 double fmodr(double x, double y)
 {
@@ -110,7 +109,42 @@ int dubins_intermediate_results(DubinsIntermediateResults *in, Node node1, Node 
 
     return 0;
 }
+Node EPSG_to_utm(Node node)
+{
+    Node tmpnode;
+    PJ_CONTEXT *C;
+    PJ *P;
+    PJ *norm;
+    PJ_COORD a, b;
 
+    C = proj_context_create();
+    P = proj_create_crs_to_crs(C,
+                               "EPSG:4326",
+                               "+proj=utm +zone=35 +datum=WGS84",
+                               NULL);
+
+    if (0 == P)
+    {
+        fprintf(stderr, "Failed to create transformation object.\n");
+        return node;
+    }
+    norm = proj_normalize_for_visualization(C, P);
+    if (0 == norm)
+    {
+        fprintf(stderr, "Failed to normalize transformation object.\n");
+        return node;
+    }
+    proj_destroy(P);
+    P = norm;
+    a = proj_coord(node.x, node.y, 0, 0);
+    b = proj_trans(P, PJ_FWD, a);
+
+    tmpnode.x = (double)b.enu.e;
+    tmpnode.y = (double)b.enu.n;
+    tmpnode.yaw = node.yaw;
+
+    return tmpnode;
+}
 int dubins_shortest_path(DubinsPath *path, Node node1, Node node2, double rho)
 {
     int i, errcode;
@@ -119,6 +153,14 @@ int dubins_shortest_path(DubinsPath *path, Node node1, Node node2, double rho)
     double cost;
     double best_cost = INFINITY;
     int best_word = -1;
+
+    printf("node1 ilk %f,%f,%f\n", node1.x, node1.y, node1.yaw);
+    node1 = EPSG_to_utm(node1);
+    printf("node1 son %f,%f,%f\n", node1.x, node1.y, node1.yaw);
+    printf("node2 ilk %f,%f,%f\n", node2.x, node2.y, node2.yaw);
+    node2 = EPSG_to_utm(node2);
+    printf("node2 son %f,%f,%f\n", node2.x, node2.y, node2.yaw);
+
     errcode = dubins_intermediate_results(&in, node1, node2, rho);
     if (errcode != 0)
     {
@@ -134,12 +176,9 @@ int dubins_shortest_path(DubinsPath *path, Node node1, Node node2, double rho)
     {
         DubinsPathType pathType = (DubinsPathType)i;
         errcode = dubins_word(&in, pathType, params);
-
-        printf("errcode : %d\n", errcode);
         if (errcode == 0)
         {
             cost = params[0] + params[1] + params[2];
-            printf("i : %d cost : %f\n", i, cost);
             if (cost < best_cost)
             {
                 best_word = i;
@@ -162,8 +201,11 @@ double dubins_path_length(DubinsPath *path)
 {
     double length = 0.;
     length += path->param[0];
+    printf("param 0 %f\n", path->param[0]);
     length += path->param[1];
+    printf("param 1 %f\n", path->param[1]);
     length += path->param[2];
+    printf("param 2 %f\n", path->param[2]);
     length = length * path->rho;
     return length;
 }
@@ -245,7 +287,9 @@ int dubins_path_sample_many(DubinsPath *path, double stepSize,
     int retcode;
     double q[3];
     double x = 0.0;
+
     double length = dubins_path_length(path);
+
     while (x < length)
     {
         dubins_path_sample(path, x, q);
@@ -277,13 +321,85 @@ int dubins_word(DubinsIntermediateResults *in, DubinsPathType pathType, double o
 }
 
 #include "dubins.h"
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
+/* double *utm_to_EPSG(double q[3])
+{
+    double tmp[3];
+    PJ_CONTEXT *C;
+    PJ *P;
+    PJ *norm;
+    PJ_COORD a, b;
+
+    C = proj_context_create();
+    P = proj_create_crs_to_crs(C,
+                               "EPSG:4326",
+                               "+proj=utm +zone=35 +datum=WGS84",
+                               NULL);
+
+    if (0 == P)
+    {
+        fprintf(stderr, "Failed to create transformation object.\n");
+        return 1;
+    }
+    norm = proj_normalize_for_visualization(C, P);
+    if (0 == norm)
+    {
+        fprintf(stderr, "Failed to normalize transformation object.\n");
+        return 1;
+    }
+    proj_destroy(P);
+    P = norm;
+    a = proj_coord(q[0], q[1], 0, 0);
+    b = proj_trans(P, PJ_INV, b);
+
+    tmp[0] = (double)b.lp.lam;
+    tmp[1] = (double)b.lp.phi;
+    tmp[2] = q[2];
+
+    return tmp;
+} */
+double *utm_to_EPSG(double q[3])
+{
+    static double tmp[3]; // static olarak tanımlandı, böylece fonksiyondan çıkıldığında da saklanır
+    PJ_CONTEXT *C;
+    PJ *P;
+    PJ *norm;
+    PJ_COORD a, b;
+
+    C = proj_context_create();
+    P = proj_create_crs_to_crs(C,
+                               "EPSG:4326",
+                               "+proj=utm +zone=35 +datum=WGS84",
+                               NULL);
+    if (0 == P)
+    {
+        fprintf(stderr, "Failed to create transformation object.\n");
+        return NULL; // hata olduğunda 0 yerine NULL döndürüldü
+    }
+    norm = proj_normalize_for_visualization(C, P);
+    if (0 == norm)
+    {
+        fprintf(stderr, "Failed to normalize transformation object.\n");
+        return NULL; // hata olduğunda 0 yerine NULL döndürüldü
+    }
+    proj_destroy(P);
+    P = norm;
+    a = proj_coord(q[0], q[1], 0, 0);
+    b = proj_trans(P, PJ_INV, a); // değişken adı "b" olarak belirlenmişti, burada yanlışlıkla "b" yerine "a" kullanılmış
+
+    tmp[0] = (double)b.lp.lam ;
+    tmp[1] = (double)b.lp.phi ;
+    tmp[2] = q[2];
+
+    proj_destroy(P);
+    proj_context_destroy(C); // context yok edildi
+    return tmp;
+}
+
 
 int printConfiguration(double q[3], double x, char *filename)
 {
     FILE *fptr = fopen(filename, "a");
+    q = utm_to_EPSG(q);
     fprintf(fptr, "%f,%f,%f,%f\n", q[0], q[1], q[2], x);
     fclose(fptr);
     return 0;
@@ -292,39 +408,32 @@ int printConfiguration(double q[3], double x, char *filename)
 int main()
 {
     char filename[999];
-    for(int k = 300; k >= 0;k--)
-    {
+    int k = 0;
+    sprintf(filename, "deneme%d.txt", k);
+    Node node1;
+    node1.x = 41.020448;
+    node1.y = 28.511603;
+    node1.yaw = 3 * M_PI / 2;
+    Node node2;
+    node2.x = 41.030449;
+    node2.y = 28.611605;
+    node2.yaw = M_PI / 2;
 
-        sprintf(filename, "deneme%d.txt", k);
-        Node node1;
-        node1.x = (double)rand() / 100000000;
-        node1.y = (double)rand() / 100000000;
-        node1.yaw = (double)rand() / RAND_MAX * 2 * M_PI;
-        Node node2;
-        node2.x = (double)rand() / 100000000;
-        node2.y = (double)rand() / 100000000;
-        node2.yaw = (double)rand() / RAND_MAX * 2 * M_PI;
+    DubinsPath path;
+    double turning_radius = 1;
+    Node *q_base = malloc(sizeof(double) * 3);
+    q_base[0] = node1;
+    q_base[1] = node2;
 
-        DubinsPath path;
-        double turning_radius = (double)rand() / 1000000000;
-        Node *q_base = malloc(sizeof(double) * 3);
-        q_base[0] = node1;
-        q_base[1] = node2;
-        for (int i = 0; i < 1; i++)
-        {
-            dubins_shortest_path(&path, q_base[i], q_base[i + 1], turning_radius);
-            dubins_path_sample_many(&path, 0.2, printConfiguration, filename);
-            printf("--------------Mıssion completed----------\n");
+    dubins_shortest_path(&path, node1, node2, turning_radius);
+    printf("test1\n");
+    dubins_path_sample_many(&path, 1, printConfiguration, filename);
+    printf("--------------Mıssion completed----------\n");
 
-/*             FILE *ptr = fopen(filename, "a");
-            fprintf(ptr, "0,0,0,0\n");
-            fclose(ptr); */
+    FILE *fptr = fopen("Dubins16.txt", "a");
+    fprintf(fptr, "*****************\n");
+    fprintf(fptr, "%f,%f,%f,%u,%f\n", path.param[0], path.param[1], path.param[2], path.type, path.rho);
+    fclose(fptr);
 
-            FILE *fptr = fopen("Dubins16.txt", "a");
-            fprintf(fptr, "*****************\n");
-            fprintf(fptr, "%f,%f,%f,%u,%f\n", path.param[0], path.param[1], path.param[2], path.type, path.rho);
-            fclose(fptr);
-        }
-    }
     return 0;
 }
